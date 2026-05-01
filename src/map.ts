@@ -1,12 +1,16 @@
 import * as d3 from "d3";
-import { feature } from "topojson-client";
-import type { Topology, GeometryCollection } from "topojson-specification";
 import { debtByIso3, formatBillions, formatPct } from "./data";
 
 type Mode = "pct" | "abs";
 
-const WORLD_JSON_URL =
-  "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+const GEOJSON_URL =
+  "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson";
+
+function getIso3(props: any): string | null {
+  if (props.ISO_A3 && props.ISO_A3 !== "-99") return props.ISO_A3;
+  if (props.ADM0_A3) return props.ADM0_A3;
+  return null;
+}
 
 export async function renderMap(container: HTMLElement) {
   let mode: Mode = "pct";
@@ -82,25 +86,22 @@ export async function renderMap(container: HTMLElement) {
       "#08306b",
     ]);
 
-  // Fetch world data
-  const topology = (await d3.json(WORLD_JSON_URL)) as Topology;
-  const countries = feature(
-    topology,
-    topology.objects.countries as GeometryCollection
-  );
+  // Fetch GeoJSON
+  const geojson = (await d3.json(GEOJSON_URL)) as GeoJSON.FeatureCollection;
 
   // Render countries
   g.selectAll("path.country")
-    .data(countries.features)
+    .data(geojson.features)
     .join("path")
     .attr("class", "country")
     .attr("d", path as any)
-    .attr("fill", (d: any) => getColor(d.properties.iso_a3))
+    .attr("fill", (d: any) => getColor(getIso3(d.properties)))
     .attr("stroke", "#222")
     .attr("stroke-width", 0.3)
     .on("mouseover", function (event, d: any) {
       d3.select(this).attr("stroke", "#fff").attr("stroke-width", 1);
-      showTooltip(event, d.properties.iso_a3, d.properties.name);
+      const iso3 = getIso3(d.properties);
+      showTooltip(event, iso3, d.properties.NAME || d.properties.NAME_LONG || d.properties.ADMIN);
     })
     .on("mousemove", function (event) {
       moveTooltip(event);
@@ -110,7 +111,8 @@ export async function renderMap(container: HTMLElement) {
       tooltip.style("display", "none");
     });
 
-  function getColor(iso3: string): string {
+  function getColor(iso3: string | null): string {
+    if (!iso3) return "#2a2a2a";
     const d = debtByIso3.get(iso3);
     if (!d) return "#2a2a2a";
     return mode === "pct" ? pctColor(d.debtPctGdp) : absColor(d.debtAbsB);
@@ -118,9 +120,15 @@ export async function renderMap(container: HTMLElement) {
 
   function showTooltip(
     event: PointerEvent,
-    iso3: string,
+    iso3: string | null,
     fallbackName: string
   ) {
+    if (!iso3) {
+      tooltip
+        .html(`<strong>${fallbackName}</strong><br><em>No data</em>`)
+        .style("display", "block");
+      return;
+    }
     const d = debtByIso3.get(iso3);
     if (!d) {
       tooltip
@@ -152,7 +160,7 @@ export async function renderMap(container: HTMLElement) {
     g.selectAll<SVGPathElement, any>("path.country")
       .transition()
       .duration(400)
-      .attr("fill", (d: any) => getColor(d.properties.iso_a3));
+      .attr("fill", (d: any) => getColor(getIso3(d.properties)));
     renderLegend();
   }
 
